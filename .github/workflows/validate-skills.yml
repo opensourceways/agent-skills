@@ -1,0 +1,91 @@
+name: Validate Skills
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**/*.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'skills/**/*.md'
+
+jobs:
+  validate:
+    name: Validate Skill Files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check file naming convention
+        run: |
+          echo "Checking skill file naming conventions..."
+          invalid_files=()
+
+          # Check for files that don't follow naming convention
+          while IFS= read -r file; do
+            filename=$(basename "$file")
+
+            # Check if filename contains uppercase letters, spaces, or underscores
+            if [[ "$filename" =~ [A-Z] ]] || [[ "$filename" =~ [[:space:]] ]] || [[ "$filename" =~ _ ]]; then
+              invalid_files+=("$file")
+            fi
+          done < <(find skills -name "*.md" -not -name "README.md")
+
+          if [ ${#invalid_files[@]} -gt 0 ]; then
+            echo "❌ The following files don't follow naming convention (lowercase with hyphens):"
+            printf '%s\n' "${invalid_files[@]}"
+            exit 1
+          else
+            echo "✅ All skill files follow naming convention"
+          fi
+
+      - name: Check for required sections
+        run: |
+          echo "Checking for required sections in skill files..."
+          missing_sections=()
+
+          # Required sections in skill files
+          required_sections=("描述" "使用场景" "示例")
+
+          while IFS= read -r file; do
+            # Skip README files
+            if [[ "$file" == *"README.md" ]]; then
+              continue
+            fi
+
+            file_issues=""
+            for section in "${required_sections[@]}"; do
+              if ! grep -q "## $section" "$file"; then
+                file_issues="$file_issues\n  - Missing section: $section"
+              fi
+            done
+
+            if [ -n "$file_issues" ]; then
+              missing_sections+=("$file:$file_issues")
+            fi
+          done < <(find skills -name "*.md")
+
+          if [ ${#missing_sections[@]} -gt 0 ]; then
+            echo "⚠️  Warning: Some files are missing recommended sections:"
+            printf '%b\n' "${missing_sections[@]}"
+            # Don't fail the build, just warn
+          else
+            echo "✅ All skill files have recommended sections"
+          fi
+
+      - name: Check for markdown lint
+        uses: articulate/actions-markdownlint@v1
+        with:
+          config: .markdownlint.json
+          files: 'skills/**/*.md'
+          ignore: 'node_modules'
+        continue-on-error: true
+
+      - name: Summary
+        run: |
+          echo "### Validation Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All skill files have been validated." >> $GITHUB_STEP_SUMMARY
