@@ -28,7 +28,7 @@ infrastructure/
 
 <!-- 在此列出你的 skills，保持更新 -->
 
-- 暂无
+- **Github-action-diagnose**: 诊断昇腾CI github action问题
 
 ## 团队规范
 

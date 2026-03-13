@@ -1,0 +1,53 @@
+{
+  "skill_name": "github-action-diagnose",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "https://github.com/tile-ai/tilelang-ascend/actions/runs/22718535502",
+      "expected_output": "识别为基础设施故障：镜像拉取失败（image pull failure），输出结构化诊断报告",
+      "files": [],
+      "assertions": [
+        {
+          "name": "输出结构化报告（情况A格式）",
+          "description": "输出包含 '# GitHub Action 故障诊断报告' 标题，说明技能正确识别为基础设施故障并使用了规定格式"
+        },
+        {
+          "name": "识别为镜像拉取失败",
+          "description": "输出中包含 '镜像' 或 'image pull' 或 'pull' 相关关键词，说明技能正确定性了故障类型"
+        },
+        {
+          "name": "包含故障定性字段",
+          "description": "输出包含 '故障定性' 字段，符合规定的报告结构"
+        },
+        {
+          "name": "不包含修复建议",
+          "description": "输出不包含 '建议' 或 '修复' 或 '解决方案' 等字样，符合技能只做诊断不提供修复建议的要求"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "https://github.com/sgl-project/sglang/actions/runs/22573924024/job/65388415192",
+      "expected_output": "识别为基础设施故障：网络问题，输出结构化诊断报告",
+      "files": [],
+      "assertions": [
+        {
+          "name": "输出结构化报告（情况A格式）",
+          "description": "输出包含 '# GitHub Action 故障诊断报告' 标题，说明技能正确识别为基础设施故障并使用了规定格式"
+        },
+        {
+          "name": "识别为网络问题",
+          "description": "输出中包含 '网络' 或 'network' 或 'timeout' 或 'connection' 相关关键词，说明技能正确定性了故障类型"
+        },
+        {
+          "name": "包含故障定性字段",
+          "description": "输出包含 '故障定性' 字段，符合规定的报告结构"
+        },
+        {
+          "name": "不包含修复建议",
+          "description": "输出不包含 '建议' 或 '修复' 或 '解决方案' 等字样，符合技能只做诊断不提供修复建议的要求"
+        }
+      ]
+    }
+  ]
+}
