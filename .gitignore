@@ -12,6 +12,7 @@
 
 # Claude Code settings
 .claude/
+.omc/
 
 # Temporary files
 *.tmp
