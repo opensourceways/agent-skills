@@ -57,78 +57,73 @@ git push origin feature/add-new-skill
 
 #### 在 Claude Code 中配置
 
-本指南将帮助你将此 marketplace 中的技能安装到你自己的 Claude Code 环境中。
+本指南将帮助你将此 marketplace 中的skill安装到你自己的 Claude Code 环境中。
 
-##### 方法一：在 Claude Code 客户端中添加（推荐）
+#### 方法一：在 Claude Code 客户端中添加（推荐）
 
-你可以在 Claude Code 客户端中直接添加此 marketplace 并安装技能。
+你可以在 Claude Code 客户端中直接添加此 marketplace 并安装skill。
 
-1. **添加 Marketplace**
+1、添加 Marketplace
 
-   在 Claude Code 中运行以下命令：
+在 Claude Code 中运行以下命令：
 
-   ```
-   /plugin marketplace add opensourceways/agent-skills
-   ```
+```
+/plugin marketplace add opensourceways/agent-skills
+```
 
-2. **浏览并安装skill**
+2、浏览并安装skill
 
-   添加 marketplace 后，你可以通过以下两种方式安装技能：
+添加 marketplace 后，你可以通过以下两种方式安装skill：
 
-   **方式 A：交互式安装**
+方式 A：交互式安装
 
-   在 Claude Code 中输入 `/plugin` 或点击插件图标，然后：
-   - 选择 `Browse and install plugins`（浏览并安装插件）
-  - 选择 `opensourceways-agent-skills` marketplace
-   - 选择你想要安装的技能（例如 `triton-upgrade`）
-   - 点击 `Install now`（立即安装）
+在 Claude Code cli 中输入 `/plugin`，在 `Discover plugins` 中查找需要的plugin，根据指引安装即可
 
-   **方式 B：命令行直接安装**
-
-   ```
-  /plugin install triton-upgrade@opensourceways-agent-skills
-   ```
+方式 B：命令行直接安装
+```
+/plugin install triton-upgrade@opensourceways-agent-skills
+```
 
 
-##### 方法二：手动编辑配置文件
+#### 方法二：手动编辑配置文件
 
 如果你更喜欢手动配置，可以按照以下步骤操作：
 
-1. **编辑 known_marketplaces.json**
+1、编辑 known_marketplaces.json
 
-   打开或创建 `~/.claude/plugins/known_marketplaces.json` 文件，添加以下内容：
+打开或创建 `~/.claude/plugins/known_marketplaces.json` 文件，添加以下内容：
 
-   ```json
-   {
-     "opensourceways-agent-skills": {
-       "source": {
-         "source": "github",
-         "repo": "opensourceways/agent-skills"
-       },
-       "installLocation": "~/.claude/plugins/marketplaces/opensourceways-agent-skills",
-       "lastUpdated": "2026-02-13T00:00:00.000Z"
-     }
-   }
-   ```
+```json
+{
+  "opensourceways-agent-skills": {
+    "source": {
+      "source": "github",
+      "repo": "opensourceways/agent-skills"
+    },
+    "installLocation": "~/.claude/plugins/marketplaces/opensourceways-agent-skills",
+    "lastUpdated": "2026-02-13T00:00:00.000Z"
+  }
+}
+```
 
-   > **注意**：如果你的 `known_marketplaces.json` 文件中已经有其他 marketplace，请确保添加逗号并保持 JSON 格式正确。
+> **注意**：如果你的 `known_marketplaces.json` 文件中已经有其他 marketplace，请确保添加逗号并保持 JSON 格式正确。
 
-2. **安装skill**
+2、 安装skill
 
-   在终端中运行安装命令：
+  在终端中运行安装命令：
 
-   ```bash
+  ```bash
   claude plugin install triton-upgrade@opensourceways-agent-skills
-   ```
+  ```
 
 
-##### 方式三：本地克隆使用
+#### 方法三：本地克隆使用
 
 ```bash
 # 1. 克隆仓库到本地
 git clone <repository-url> ~/agent-skills
 
-# 2. 在 Claude Code 配置文件中添加技能目录
+# 2. 在 Claude Code 配置文件中添加skill目录
 # 编辑 ~/.claude/config.json 或在项目的 .claude/config.json 中添加：
 {
   "skills": {
@@ -142,7 +137,7 @@ git clone <repository-url> ~/agent-skills
 # 3. 重启 Claude Code 或重新加载配置
 ```
 
-##### 方式四：直接引用 GitHub 上的 Skills
+#### 方法四：直接引用 GitHub 上的 Skills
 
 ```bash
 # 在 Claude Code 配置中使用 Git URL
@@ -169,7 +164,7 @@ git clone <repository-url> ~/agent-skills
 ```
 /help
 ```
-你应该能看到仓库中的 skills 列在可用技能列表中。
+你应该能看到仓库中的 skills 列在可用skill列表中。
 
 ### 3. 更新 Skills
 
