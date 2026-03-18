@@ -1,7 +1,7 @@
 ---
 name: github-action-diagnose
 description: 诊断昇腾（Ascend）NPU 集群上 GitHub Actions 执行失败的原因，定位基础设施故障与根因分析
-allowed-tools: Bash(gh run view:*), Bash(gh run list:*), Bash(gh api:*), Bash(kubectl get:*), Bash(kubectl describe:*), Bash(kubectl logs:*), Bash(kubectl config:*), Read, Grep
+allowed-tools: Bash(gh run view:*), Bash(gh run list:*), Bash(gh pr view:*), Bash(gh api:*), Bash(kubectl get:*), Bash(kubectl describe:*), Bash(kubectl logs:*), Read, Grep
 ---
 
 ## Your task
@@ -49,18 +49,12 @@ allowed-tools: Bash(gh run view:*), Bash(gh run list:*), Bash(gh api:*), Bash(ku
    - Pod 已销毁：在日志中搜索 `Successfully assigned <runner_name> to <node_name>`。
 
 #### 2b. 环境故障深度定位
-检查以下故障模式：
 
-- **驱动/硬件失效**：`npu-smi info` 报错、`ERR99999`、`error code 507035`、`Device not found`。
-- **资源溢出 (OOM)**：系统级 `Killed` 信号、`Bus error`（SHM 不足）、`No space left on device`。
-- **多机连锁超时**：多机任务中某节点报 `Timeout`，优先识别并检查 Master 节点。Master 节点识别方法：
-  - 检查 `RANK_TABLE_FILE` 中 `rank_id=0` 对应的节点
-  - 或在日志中搜索 `master_addr` / `MASTER_ADDR` 环境变量指向的节点
-  - 确认 Master 节点是否有 `Unexpected Exit` 或驱动报错
+读取 `references/ascend-troubleshooting.md`，按其中的故障模式逐一比对日志，涵盖：驱动/硬件失效、资源饱和、OOM、设备插件异常、Runner 版本过期、多机连锁超时、节点出口网络故障
 
 ### Step 3: 非环境问题判定
 
-如果 Step 2 未发现环境/硬件故障，检查以下非环境因素：
+如果 Step 2 未发现环境/硬件/网络故障，检查以下非环境因素：
 
 - **YAML 语法错误**：如 `undefined variable "False"`（应为小写 `false`）。
 - **业务逻辑报错**：`AssertionError`、Python Traceback 指向业务源码、测试用例失败。

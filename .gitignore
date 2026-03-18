@@ -13,6 +13,7 @@
 # Claude Code settings
 .claude/
 .omc/
+CLAUDE.local.md
 
 # Temporary files
 *.tmp
