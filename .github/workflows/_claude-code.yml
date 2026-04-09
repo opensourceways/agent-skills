@@ -252,6 +252,11 @@ jobs:
             echo "::group::Claude Code Full Output"
           fi
 
+          # Debug: 显示环境变量
+          echo "Debug: CLAUDE_PROMPT length: ${#CLAUDE_PROMPT}"
+          echo "Debug: MODEL=$MODEL"
+          echo "Debug: Working directory: $(pwd)"
+
           CLAUDE_ARGS="--model $MODEL --output-format json"
 
           if [[ "$DANGEROUSLY_SKIP_PERMISSIONS" == "true" ]]; then
@@ -268,10 +273,19 @@ jobs:
             fi
           fi
 
+          echo "Debug: Running claude with args: $CLAUDE_ARGS"
+
           claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS \
             2>/tmp/claude_stderr.txt \
             > /tmp/claude_raw.json
           EXIT_CODE=$?
+
+          # 显示错误输出（如果有）
+          if [ -s /tmp/claude_stderr.txt ]; then
+            echo "=== Claude Stderr ==="
+            cat /tmp/claude_stderr.txt
+            echo "====================="
+          fi
 
           if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
             echo "::endgroup::"
