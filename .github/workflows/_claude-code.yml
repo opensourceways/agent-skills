@@ -284,9 +284,18 @@ jobs:
           # 检查 API key 是否设置（不显示值）
           if [ -z "$CLAUDE_API_KEY" ]; then
             echo "ERROR: CLAUDE_API_KEY is not set!"
+            exit 1
           else
             echo "Debug: CLAUDE_API_KEY is set (length: ${#CLAUDE_API_KEY})"
           fi
+
+          # 登录 Claude Code
+          echo "Logging in to Claude Code..."
+          echo "$CLAUDE_API_KEY" | claude login --stdin || {
+            echo "ERROR: Failed to login to Claude Code"
+            exit 1
+          }
+          echo "Login successful"
 
           # 直接运行，显示所有输出
           echo "=== Starting Claude Code ==="
