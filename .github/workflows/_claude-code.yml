@@ -257,6 +257,11 @@ jobs:
           echo "Debug: MODEL=$MODEL"
           echo "Debug: Working directory: $(pwd)"
 
+          # Debug: 检查 claude 是否存在
+          echo "Debug: Checking claude installation..."
+          which claude || echo "WARNING: claude not in PATH"
+          claude --version 2>&1 || echo "WARNING: claude --version failed"
+
           CLAUDE_ARGS="--model $MODEL --output-format json"
 
           if [[ "$DANGEROUSLY_SKIP_PERMISSIONS" == "true" ]]; then
