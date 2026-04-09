@@ -239,6 +239,7 @@ jobs:
       # ------------------------------------------------------------------
       - name: Invoke Claude Code
         id: claude_run
+        shell: bash
         env:
           MODEL: ${{ github.event.client_payload.model || 'claude-sonnet-4-20250514' }}
           ALLOW_CODE_CHANGE: ${{ github.event.client_payload.allow_code_change }}
