@@ -288,12 +288,18 @@ jobs:
             echo "Debug: CLAUDE_API_KEY is set (length: ${#CLAUDE_API_KEY})"
           fi
 
-          # 直接运行，让错误显示在控制台
-          claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS 2>&1 | tee /tmp/claude_output.log || true
+          # 直接运行，显示所有输出
+          echo "=== Starting Claude Code ==="
+          set -o pipefail
+          claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS 2>&1 | tee /tmp/claude_output.log
           EXIT_CODE=${PIPESTATUS[0]}
+          echo "=== Claude Code Exit Code: $EXIT_CODE ==="
           
-          # 保存输出到文件
-          cp /tmp/claude_output.log /tmp/claude_raw.json 2>/dev/null || echo "" > /tmp/claude_raw.json
+          # 检查输出文件
+          echo "Debug: Output file size: $(wc -c < /tmp/claude_output.log 2>/dev/null || echo 0) bytes"
+          
+          # 保存输出到文件用于后续解析
+          cp /tmp/claude_output.log /tmp/claude_raw.json 2>/dev/null || echo "{\"error\": \"no output\"}" > /tmp/claude_raw.json
 
           if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
             echo "::endgroup::"
