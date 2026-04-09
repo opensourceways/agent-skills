@@ -5,6 +5,7 @@
   "allowed_repos": [
     "KadenZhang3321/agent-skills",
     "KadenZhang3321/hello-world",
-    "Meihan-chen/vllm-benchmarks"
+    "Meihan-chen/vllm-benchmarks",
+    "KadenZhang3321/vllm-benchmarks"
   ]
 }
