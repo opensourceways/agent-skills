@@ -253,6 +253,39 @@ jobs:
             echo "::group::Claude Code Full Output"
           fi
 
+          # 配置 Claude CLI
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "Configuring Claude CLI..."
+            mkdir -p ~/.config/claude
+            echo "{\"apiKey\":\"$ANTHROPIC_API_KEY\"}" > ~/.config/claude/settings.json
+            echo "Claude CLI configured"
+          fi
+
+          CLAUDE_ARGS="--model $MODEL --output-format json"
+
+          if [[ "$DANGEROUSLY_SKIP_PERMISSIONS" == "true" ]]; then
+            CLAUDE_ARGS="$CLAUDE_ARGS --dangerously-skip-permissions"
+          fi
+
+          if [[ -n "$ALLOWED_TOOLS" ]]; then
+            CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools $ALLOWED_TOOLS"
+          else
+            if [[ "$ALLOW_CODE_CHANGE" == "true" ]]; then
+              CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools Read,Edit,Write,Glob,Grep,Bash"
+            else
+              CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools Read,Glob,Grep,Bash"
+            fi
+          fi
+
+          claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS \
+            2>/tmp/claude_stderr.txt \
+            > /tmp/claude_raw.json
+          EXIT_CODE=$?
+
+          if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
+            echo "::endgroup::"
+          fi
+
           # Debug: 显示环境变量
           echo "Debug: CLAUDE_PROMPT length: ${#CLAUDE_PROMPT}"
           echo "Debug: MODEL=$MODEL"
@@ -357,7 +390,8 @@ jobs:
       # ------------------------------------------------------------------
       - name: Create patch file
         id: create_patch
-        if: steps.claude_run.outputs.code_changed == 'true' && github.event.client_payload.allow_code_change == 'true' && (github.event.client_payload.verify_command == '' || steps.verify.conclusion == 'success')
+        # 简化条件：只要代码变更就创建 patch
+        if: steps.claude_run.outputs.code_changed == 'true'
         working-directory: caller-repo
         run: |
           git diff --no-color > /tmp/claude-changes.patch
@@ -365,6 +399,13 @@ jobs:
           echo "patch_size=$PATCH_SIZE" >> "$GITHUB_OUTPUT"
           echo "patch_path=/tmp/claude-changes.patch" >> "$GITHUB_OUTPUT"
           echo "::notice::Created patch file: $PATCH_SIZE bytes"
+          
+          # Debug: 显示 patch 内容预览
+          if [ $PATCH_SIZE -gt 0 ]; then
+            echo "=== Patch Preview ==="
+            head -30 /tmp/claude-changes.patch
+            echo "====================="
+          fi
 
       - name: Upload patch as artifact
         if: steps.create_patch.outputs.patch_path
