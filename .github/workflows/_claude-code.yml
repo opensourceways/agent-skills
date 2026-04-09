@@ -246,6 +246,7 @@ jobs:
           DANGEROUSLY_SKIP_PERMISSIONS: ${{ github.event.client_payload.dangerously_skip_permissions }}
           ALLOWED_TOOLS: ${{ github.event.client_payload.allowed_tools }}
           SHOW_FULL_OUTPUT: ${{ github.event.client_payload.show_full_output }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
         working-directory: caller-repo
         run: |
           if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
@@ -279,18 +280,20 @@ jobs:
           fi
 
           echo "Debug: Running claude with args: $CLAUDE_ARGS"
-
-          claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS \
-            2>/tmp/claude_stderr.txt \
-            > /tmp/claude_raw.json
-          EXIT_CODE=$?
-
-          # 显示错误输出（如果有）
-          if [ -s /tmp/claude_stderr.txt ]; then
-            echo "=== Claude Stderr ==="
-            cat /tmp/claude_stderr.txt
-            echo "====================="
+          
+          # 检查 API key 是否设置（不显示值）
+          if [ -z "$CLAUDE_API_KEY" ]; then
+            echo "ERROR: CLAUDE_API_KEY is not set!"
+          else
+            echo "Debug: CLAUDE_API_KEY is set (length: ${#CLAUDE_API_KEY})"
           fi
+
+          # 直接运行，让错误显示在控制台
+          claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS 2>&1 | tee /tmp/claude_output.log || true
+          EXIT_CODE=${PIPESTATUS[0]}
+          
+          # 保存输出到文件
+          cp /tmp/claude_output.log /tmp/claude_raw.json 2>/dev/null || echo "" > /tmp/claude_raw.json
 
           if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
             echo "::endgroup::"
