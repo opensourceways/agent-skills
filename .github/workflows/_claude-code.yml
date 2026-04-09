@@ -72,7 +72,7 @@ jobs:
             | python3 -c "import sys,json; print(json.load(sys.stdin).get('permission','none'))")
 
           if [[ "$PERMISSION" == "write" || "$PERMISSION" == "admin" || "$PERMISSION" == "maintain" ]]; then
-            echo "::notice::$ACTOR has $PERMISSION permission on $CALLER_REPO"
+            echo "::$ACTOR has $PERMISSION permission on $CALLER_REPO"
           else
             echo "::error::$ACTOR has insufficient permission ($PERMISSION) on $CALLER_REPO"
             exit 1
@@ -106,7 +106,7 @@ jobs:
         shell: bash
 
       # ------------------------------------------------------------------
-      # 4.1 设置调用方仓库的环境变量（从 client_payload 传入）
+      # 5. 设置调用方仓库的环境变量
       # ------------------------------------------------------------------
       - name: Setup caller environment variables
         env:
@@ -119,7 +119,7 @@ jobs:
         shell: bash
 
       # ------------------------------------------------------------------
-      # 5. 拉取 PR Diff（如果是 PR 评论）
+      # 6. 拉取 PR Diff（如果是 PR 评论）
       # ------------------------------------------------------------------
       - name: Fetch PR diff
         if: github.event.client_payload.pr_number != ''
@@ -138,7 +138,7 @@ jobs:
         shell: bash
 
       # ------------------------------------------------------------------
-      # 6. 构建 prompt
+      # 7. 构建 prompt
       # ------------------------------------------------------------------
       - name: Build prompt
         env:
@@ -164,14 +164,11 @@ jobs:
           allow_code_change = os.environ.get('ALLOW_CODE_CHANGE', 'false').lower() == 'true'
 
           # 加载 Skill 指令
-          # 优先级：1) custom_prompt（直接传入的 prompt）2) skill_url（远程URL）3) skill_name - 调用方 .github/skills/ 4) skill_name - 调用方 .ai/skills/ 5) skill_name - agent-skills skills/
           skill_prompt = ''
 
-          # 最高优先级：直接传入的 custom_prompt
           if custom_prompt:
               skill_prompt = custom_prompt
               print(f'Using custom_prompt directly')
-          # 远程 URL
           elif skill_url:
               try:
                   import urllib.request
@@ -180,7 +177,6 @@ jobs:
               except Exception as e:
                   print(f'Warning: failed to load skill from URL: {e}')
                   skill_prompt = ''
-          # 其次：本地文件
           elif skill_name:
               candidates = [
                   f'caller-repo/.github/skills/{skill_name}/SKILL.md',
@@ -239,7 +235,7 @@ jobs:
           PYEOF
 
       # ------------------------------------------------------------------
-      # 7. 调用 Claude Code
+      # 8. 调用 Claude Code
       # ------------------------------------------------------------------
       - name: Invoke Claude Code
         id: claude_run
@@ -251,20 +247,16 @@ jobs:
           SHOW_FULL_OUTPUT: ${{ github.event.client_payload.show_full_output }}
         working-directory: caller-repo
         run: |
-          # 如果启用 show_full_output，使用 group 展示完整输出
           if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
             echo "::group::Claude Code Full Output"
           fi
 
-          # 构建 Claude 参数
           CLAUDE_ARGS="--model $MODEL --output-format json"
 
-          # 如果传递了 dangerously_skip_permissions 且为 true
           if [[ "$DANGEROUSLY_SKIP_PERMISSIONS" == "true" ]]; then
             CLAUDE_ARGS="$CLAUDE_ARGS --dangerously-skip-permissions"
           fi
 
-          # 如果传递了 allowed_tools，优先使用；否则根据 allow_code_change 使用默认
           if [[ -n "$ALLOWED_TOOLS" ]]; then
             CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools $ALLOWED_TOOLS"
           else
@@ -319,7 +311,7 @@ jobs:
           exit $EXIT_CODE
 
       # ------------------------------------------------------------------
-      # 8. 执行验证命令（仅当 verify_command 不为空时）
+      # 9. 执行验证命令（仅当 verify_command 不为空时）
       # ------------------------------------------------------------------
       - name: Run verify command
         if: github.event.client_payload.verify_command != ''
@@ -331,8 +323,7 @@ jobs:
         shell: bash
 
       # ------------------------------------------------------------------
-      # 9. 生成 patch 文件并上传 artifact（仅当 Claude 修改了代码时）
-      #    不直接 commit/push，把改动发回给调用方处理
+      # 10. 生成 patch 文件并上传 artifact
       # ------------------------------------------------------------------
       - name: Create patch file
         id: create_patch
@@ -354,7 +345,7 @@ jobs:
           retention-days: 1
 
       # ------------------------------------------------------------------
-      # 9. 将 Claude 的回复发布为评论
+      # 11. 将 Claude 的回复发布为评论
       # ------------------------------------------------------------------
       - name: Post comment
         if: always()
@@ -401,7 +392,7 @@ jobs:
           PYEOF
 
       # ------------------------------------------------------------------
-      # 10. Job 执行摘要
+      # 12. Job 执行摘要
       # ------------------------------------------------------------------
       - name: Write job summary
         if: always()
@@ -418,7 +409,6 @@ jobs:
           echo "| Caller image | \`${{ github.event.client_payload.caller_image || 'N/A' }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Verify command | \`${{ github.event.client_payload.verify_command || 'N/A' }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Verify result | \`${{ steps.verify.outcome || 'skipped' }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| New PR | \`${{ steps.create_pr.outputs.pr_url || 'N/A' }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Input tokens | \`${{ steps.claude_run.outputs.input_tokens }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Output tokens | \`${{ steps.claude_run.outputs.output_tokens }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Cost (USD) | \`${{ steps.claude_run.outputs.cost_usd }}\` |" >> "$GITHUB_STEP_SUMMARY"
