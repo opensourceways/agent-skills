@@ -1,61 +1,15 @@
-# 使用 Agent-Skills 替换直接 CC 调用
+# 迁移指南：从直接 CC 调用到 Agent-Skills
 
-本文档说明如何将 `main2main_auto.yaml` 中直接调用 Claude Code 的方式，替换为调用 Agent-Skills。
-
-## 架构对比
-
-### 方案 A：直接调用（原方案）
-```yaml
-- uses: anthropics/claude-code-action/base-action@v1
-  with:
-    anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-    prompt: "..."
-    claude_args: "..."
-```
-
-**优点**：
-- 简单直接，一步完成
-- GitHub Action 自动处理认证
-
-**缺点**：
-- 需要在每个调用方仓库配置 API key
-- 无法集中管理 CC 版本和配置
-
-### 方案 B：通过 Agent-Skills（新方案）
-```yaml
-- name: Trigger agent-skills
-  run: |
-    curl -X POST \
-      -H "Authorization: Bearer ${{ secrets.PAT_TOKEN }}" \
-      "https://api.github.com/repos/<org>/agent-skills/dispatches" \
-      -d '{
-        "event_type": "claude-request",
-        "client_payload": {
-          "caller_repo": "owner/repo",
-          "custom_prompt": "...",
-          "model": "claude-sonnet-4-20250514"
-        }
-      }'
-```
-
-**优点**：
-- API key 集中管理在 agent-skills
-- 可统一升级 CC 版本
-- 支持白名单权限控制
-
-**缺点**：
-- 流程更复杂（触发→等待→下载→应用）
-- 需要处理异步调用
-- 容器内不能使用 `--dangerously-skip-permissions`
+本文档说明如何将 workflow 中直接调用 Claude Code 的方式，替换为通过 Agent-Skills 调用。
 
 ## 迁移步骤
 
 ### 1. 准备工作
 
 #### Agent-Skills 端配置
-1. 在 `allowed-callers.json` 中添加调用方仓库
-2. 确保 `CLAUDE_API_KEY` secret 已设置
-3. 确保 `AGENT_PAT` secret 已设置（用于检出调用方仓库）
+1. 在 `allowed-callers.json` 中添加调用方仓库路径
+2. 确保 `CLAUDE_API_KEY` secret 已配置
+3. 确保 `AGENT_PAT` secret 已配置（用于检出调用方仓库）
 
 #### 调用方仓库配置
 1. 在仓库 Settings → Secrets 添加 `PAT_TOKEN`：
@@ -64,16 +18,16 @@
 
 ### 2. 修改 Workflow
 
-将原来的 CC 调用步骤替换为以下三个步骤：
+将原来的 `anthropics/claude-code-action/base-action@v1` 步骤替换为以下三个步骤：
+
+#### 步骤 1: 触发 Agent-Skills
 
 ```yaml
-# 步骤 1: 触发 Agent-Skills
 - name: Trigger agent-skills workflow
   id: trigger
   env:
     GH_TOKEN: ${{ secrets.PAT_TOKEN }}
   run: |
-    # 构建 JSON payload
     PAYLOAD=$(cat <<EOF
     {
       "event_type": "claude-request",
@@ -93,53 +47,57 @@
     EOF
     )
     
-    # 发送请求
     curl -X POST \
       -H "Authorization: Bearer $GH_TOKEN" \
       -H "Accept: application/vnd.github+json" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
-      "https://api.github.com/repos/<org>/agent-skills/dispatches" \
+      "https://api.github.com/repos/kadenzhang3321/agent-skills/dispatches" \
       -d "$PAYLOAD"
     
     sleep 15  # 等待 workflow 启动
+```
 
-# 步骤 2: 获取 Workflow Run ID 并等待完成
+#### 步骤 2: 等待完成
+
+```yaml
 - name: Wait for agent-skills completion
   id: wait
   env:
     GH_TOKEN: ${{ secrets.PAT_TOKEN }}
   run: |
-    # 获取最新的 workflow run
-    RUN_ID=$(gh run list \
-      --repo "<org>/agent-skills" \
-      --workflow _claude-code.yml \
-      -L 1 \
-      --json databaseId \
-      --jq '.[0].databaseId')
-    
-    # 轮询等待完成
     for i in {1..180}; do
-      STATUS=$(gh run view "$RUN_ID" \
-        --repo "<org>/agent-skills" \
-        --json conclusion \
-        --jq '.conclusion')
+      RUN_ID=$(gh run list \
+        --repo "kadenzhang3321/agent-skills" \
+        --workflow _claude-code.yml \
+        -L 1 \
+        --json databaseId \
+        --jq '.[0].databaseId')
       
-      if [[ "$STATUS" == "success" || "$STATUS" == "failure" ]]; then
-        break
+      if [ -n "$RUN_ID" ]; then
+        STATUS=$(gh run view "$RUN_ID" \
+          --repo "kadenzhang3321/agent-skills" \
+          --json conclusion \
+          --jq '.conclusion')
+        
+        if [[ "$STATUS" == "success" || "$STATUS" == "failure" ]]; then
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          break
+        fi
       fi
       sleep 10
     done
+```
 
-# 步骤 3: 下载 patch 并应用
+#### 步骤 3: 下载并应用 Patch
+
+```yaml
 - name: Download and apply patch
   run: |
-    # 下载 artifact
-    gh run download "$RUN_ID" \
-      --repo "<org>/agent-skills" \
+    gh run download "${{ steps.wait.outputs.run_id }}" \
+      --repo "kadenzhang3321/agent-skills" \
       --name claude-changes-patch \
       --dir /tmp/patch
     
-    # 应用 patch
     git apply /tmp/patch/claude-changes.patch
 ```
 
@@ -150,7 +108,7 @@
 | `anthropic_api_key` | 无需传递 | 由 agent-skills 管理 |
 | `prompt` | `custom_prompt` | 直接传递 prompt 内容 |
 | `claude_args` | `model`, `allowed_tools` 等 | 拆分为独立参数 |
-| 环境变量 | `caller_env_vars` | 多行字符串格式 |
+| 环境变量 | `caller_env_vars` | 多行字符串格式，用 `\n` 分隔 |
 
 ### 4. 注意事项
 
@@ -163,36 +121,34 @@
 原方案通过 `env:` 直接设置：
 ```yaml
 env:
-  KEY: value
+  OLD_COMMIT: abc123
+  NEW_COMMIT: def456
 ```
 
 新方案通过 `caller_env_vars` 传递（多行字符串）：
 ```yaml
-"caller_env_vars": "KEY1=value1\nKEY2=value2"
+"caller_env_vars": "OLD_COMMIT=abc123\nNEW_COMMIT=def456"
 ```
 
 #### 关于模型
 - 原方案可以使用任意模型（包括第三方如 minimax）
 - 新方案使用 Anthropic 官方模型（如 `claude-sonnet-4-20250514`）
 
-## 测试建议
+#### 关于长内容传递
+如果需要传递文件内容（如 bisect summary）：
+```bash
+# 读取并转义（限制大小避免超出 payload 限制）
+CONTENT=$(head -c 3000 /path/to/file.md | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/"/\\"/g')
+```
 
-在实际迁移前，建议：
-1. 先创建测试 workflow（类似 test-cc-phase1.yml）
-2. 验证参数传递是否正确
-3. 验证 patch 能成功下载和应用
-4. 确认无误后再修改 main2main
+然后在 payload 中使用：
+```yaml
+"caller_env_vars": "FILE_CONTENT=${CONTENT}"
+```
 
-## 回滚方案
+### 5. 完整示例
 
-如果新方案有问题，可以快速回滚：
-1. 恢复原来的 `uses: anthropics/claude-code-action/base-action@v1` 步骤
-2. 删除新增的触发/等待/下载步骤
-3. 无需修改 agent-skills
-
-## 示例：Phase 1 完整替换
-
-### 替换前（原方案）
+#### 替换前（原方案）
 ```yaml
 - name: Claude adapt to new vLLM
   uses: anthropics/claude-code-action/base-action@v1
@@ -201,35 +157,86 @@ env:
     prompt: |
       Use the main2main skill to adapt...
       NEW_COMMIT: ${{ steps.detect.outputs.new_commit }}
-    claude_args: "--model claude-sonnet-4-20250514 --dangerously-skip-permissions ..."
+    claude_args: "--model minimax/minimax-m2.5:free --dangerously-skip-permissions --allowed-tools 'Bash(git *),Read,Write'"
   env:
     OLD_COMMIT: ${{ steps.detect.outputs.old_commit }}
     NEW_COMMIT: ${{ steps.detect.outputs.new_commit }}
+    CLAUDE_WORKING_DIR: ${{ github.workspace }}/work-dir
 ```
 
-### 替换后（新方案）
+#### 替换后（新方案）
 ```yaml
 - name: Trigger agent-skills
+  id: trigger
+  env:
+    GH_TOKEN: ${{ secrets.PAT_TOKEN }}
   run: |
-    curl -X POST ...
-    # payload 包含：
-    # - caller_repo: "owner/repo"
-    # - custom_prompt: "Use the main2main skill..."
-    # - model: "claude-sonnet-4-20250514"
-    # - allowed_tools: "..."
-    # - caller_env_vars: "OLD_COMMIT=...\nNEW_COMMIT=..."
+    PAYLOAD=$(cat <<EOF
+    {
+      "event_type": "claude-request",
+      "client_payload": {
+        "caller_repo": "kadenzhang3321/vllm-benchmarks",
+        "custom_prompt": "Use the main2main skill to adapt vllm-benchmarks to the latest vLLM main branch.\nThe NEW_COMMIT environment variable is set to ${{ steps.detect.outputs.new_commit }}.\nCommit your changes with '-s' but do NOT create a PR.",
+        "model": "claude-sonnet-4-20250514",
+        "allow_code_change": true,
+        "dangerously_skip_permissions": false,
+        "allowed_tools": "Bash(git *),Bash(gh *),Read,Write,Edit,Glob,Grep",
+        "show_full_output": true,
+        "caller_env_vars": "OLD_COMMIT=${{ steps.detect.outputs.old_commit }}\nNEW_COMMIT=${{ steps.detect.outputs.new_commit }}\nCLAUDE_WORKING_DIR=${{ github.workspace }}/work-dir"
+      }
+    }
+    EOF
+    )
+    
+    curl -X POST \
+      -H "Authorization: Bearer $GH_TOKEN" \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "https://api.github.com/repos/kadenzhang3321/agent-skills/dispatches" \
+      -d "$PAYLOAD"
+    
+    sleep 15
 
-- name: Wait for completion
+- name: Wait for agent-skills completion
+  id: wait
+  env:
+    GH_TOKEN: ${{ secrets.PAT_TOKEN }}
   run: |
-    # 轮询等待 agent-skills 完成
+    for i in {1..180}; do
+      RUN_ID=$(gh run list \
+        --repo "kadenzhang3321/agent-skills" \
+        --workflow _claude-code.yml \
+        -L 1 \
+        --json databaseId \
+        --jq '.[0].databaseId')
+      
+      if [ -n "$RUN_ID" ]; then
+        STATUS=$(gh run view "$RUN_ID" \
+          --repo "kadenzhang3321/agent-skills" \
+          --json conclusion \
+          --jq '.conclusion')
+        
+        if [[ "$STATUS" == "success" || "$STATUS" == "failure" ]]; then
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          break
+        fi
+      fi
+      sleep 10
+    done
 
-- name: Apply patch
+- name: Download and apply patch
   run: |
-    # 下载 artifact 并应用
+    gh run download "${{ steps.wait.outputs.run_id }}" \
+      --repo "kadenzhang3321/agent-skills" \
+      --name claude-changes-patch \
+      --dir /tmp/patch
+    
+    git apply /tmp/patch/claude-changes.patch
 ```
 
-## 参考
+### 6. 回滚方案
 
-- Agent-Skills 仓库：https://github.com/opensourceways/agent-skills
-- 测试示例：vllm-benchmarks/.github/workflows/test-cc-phase1.yml
-- 原始 main2main：nv-action/vllm-benchmarks/.github/workflows/main2main_auto.yaml
+如果新方案有问题，可以快速回滚：
+1. 恢复原来的 `uses: anthropics/claude-code-action/base-action@v1` 步骤
+2. 删除新增的触发/等待/下载步骤
+3. 无需修改 agent-skills
