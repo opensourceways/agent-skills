@@ -68,7 +68,7 @@ git push origin feature/add-new-skill
    在 Claude Code 中运行以下命令：
 
    ```
-   /plugin marketplace add opensourceways/agent-skills
+   /plugin marketplace add KadenZhang3321/agent-skills
    ```
 
 2. **浏览并安装skill**
@@ -79,14 +79,14 @@ git push origin feature/add-new-skill
 
    在 Claude Code 中输入 `/plugin` 或点击插件图标，然后：
    - 选择 `Browse and install plugins`（浏览并安装插件）
-  - 选择 `opensourceways-agent-skills` marketplace
+   - 选择 `KadenZhang3321-agent-skills` marketplace
    - 选择你想要安装的技能（例如 `triton-upgrade`）
    - 点击 `Install now`（立即安装）
 
    **方式 B：命令行直接安装**
 
    ```
-  /plugin install triton-upgrade@opensourceways-agent-skills
+   /plugin install triton-upgrade@KadenZhang3321-agent-skills
    ```
 
 
@@ -100,12 +100,12 @@ git push origin feature/add-new-skill
 
    ```json
    {
-     "opensourceways-agent-skills": {
+     "KadenZhang3321-agent-skills": {
        "source": {
          "source": "github",
-         "repo": "opensourceways/agent-skills"
+         "repo": "KadenZhang3321/agent-skills"
        },
-       "installLocation": "~/.claude/plugins/marketplaces/opensourceways-agent-skills",
+       "installLocation": "~/.claude/plugins/marketplaces/KadenZhang3321-agent-skills",
        "lastUpdated": "2026-02-13T00:00:00.000Z"
      }
    }
@@ -118,7 +118,7 @@ git push origin feature/add-new-skill
    在终端中运行安装命令：
 
    ```bash
-  claude plugin install triton-upgrade@opensourceways-agent-skills
+   claude plugin install triton-upgrade@KadenZhang3321-agent-skills
    ```
 
 
@@ -281,6 +281,73 @@ A: Claude Code 的配置文件通常在：
 
 如何将 Claude Bot 集成到组织下的任意仓库，请参阅：[`.github/workflows/README.md`](.github/workflows/README.md)
 
+## 🚀 Claude Code 中心服务调用指南
+
+本仓库提供中心化的 Claude Code 调用服务，其他业务仓库可以通过 `workflow_call` 方式调用。
+
+### 架构优势
+
+- **集中管理 API Key**：调用方无需配置 Anthropic API Key
+- **统一权限控制**：通过白名单和权限检查确保安全
+- **自动重试机制**：失败时自动重试（最多 3 次）
+- **预构建镜像支持**：可选使用预装 Claude CLI 的容器镜像，加速执行
+
+### 快速开始
+
+```yaml
+jobs:
+  claude:
+    uses: KadenZhang3321/agent-skills/.github/workflows/_claude-code.yml@main
+    with:
+      caller_repo: ${{ github.repository }}
+      custom_prompt: '请分析这个 PR 的代码变更'
+      allow_code_change: false
+      model: 'claude-sonnet-4-20250514'
+    secrets:
+      DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+      CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+```
+
+### 前置条件
+
+1. **配置 Secrets**（在业务仓库的 Settings → Secrets 中）：
+   - `DISPATCH_TOKEN`：GitHub PAT（需要 `repo` 权限）
+   - `CLAUDE_API_KEY`：Anthropic API Key
+
+2. **添加白名单**：联系本仓库管理员，将你的仓库添加到 `.github/allowed-callers.json`
+
+### 详细文档
+
+- **完整调用示例和参数说明**：[EXAMPLE-USAGE.md](EXAMPLE-USAGE.md)
+- **调用模板文件**：[.github/workflows/TEMPLATE-CALLER.yml](.github/workflows/TEMPLATE-CALLER.yml)
+- **从直接 CC 调用迁移**：[docs/migration-guide.md](docs/migration-guide.md)
+
+### 预构建容器镜像
+
+为了加速执行，可以使用预装 Claude CLI 的容器镜像：
+
+```dockerfile
+# Dockerfile 位于仓库根目录
+# 构建命令：
+#   docker build -t kadenzhang3321/claude-runner:latest .
+#   docker push kadenzhang3321/claude-runner:latest
+```
+
+在调用时指定 `caller_image` 参数：
+
+```yaml
+jobs:
+  claude:
+    uses: KadenZhang3321/agent-skills/.github/workflows/_claude-code.yml@main
+    with:
+      caller_repo: ${{ github.repository }}
+      caller_image: 'kadenzhang3321/claude-runner:latest'
+      custom_prompt: '请分析代码'
+    secrets:
+      DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+      CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+```
+
 ## 📞 联系方式
 
 如有问题或建议，请：
@@ -295,4 +362,4 @@ A: Claude Code 的配置文件通常在：
 ---
 
 **维护者**: [添加维护者信息]
-**最后更新**: 2026-03-28
+**最后更新**: 2026-04-15

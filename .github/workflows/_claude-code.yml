@@ -1,15 +1,126 @@
 # _claude-code.yml
-# Claude Code Handler — 由白名单仓库通过 repository_dispatch 触发。
+# Claude Code Handler — 仅支持 workflow_call 触发器。
 #
-# 本仓库（opensourceways/agent-skills）需配置以下 Secrets：
+# 本仓库（KadenZhang3321/agent-skills）需配置以下 Secrets：
 #   CLAUDE_API_KEY  — Anthropic API Key（集中管理，调用方无需配置）
-#   AGENT_PAT       — 具备 repo 权限的 PAT（用于读写调用方仓库、发布评论、创建 PR）
+#   DISPATCH_TOKEN  — 具备 repo 权限的 PAT（用于读写调用方仓库、发布评论、创建 PR）
 
 name: Claude Code Handler
 
 on:
-  repository_dispatch:
-    types: [claude-request]
+  workflow_call:
+    inputs:
+      caller_repo:
+        description: '调用方仓库路径 (owner/repo)'
+        required: true
+        type: string
+      custom_prompt:
+        description: '自定义 prompt（可选）'
+        required: false
+        type: string
+        default: ''
+      skill_name:
+        description: 'Skill 名称（可选）'
+        required: false
+        type: string
+        default: ''
+      skill_url:
+        description: 'Skill URL（可选）'
+        required: false
+        type: string
+        default: ''
+      allow_code_change:
+        description: '是否允许代码修改'
+        required: false
+        type: boolean
+        default: false
+      model:
+        description: 'Claude 模型名称'
+        required: false
+        type: string
+        default: 'claude-sonnet-4-20250514'
+      dangerously_skip_permissions:
+        description: '跳过权限确认'
+        required: false
+        type: boolean
+        default: false
+      allowed_tools:
+        description: '允许的工具列表'
+        required: false
+        type: string
+        default: ''
+      show_full_output:
+        description: '显示完整输出'
+        required: false
+        type: boolean
+        default: false
+      caller_env_vars:
+        description: '调用方环境变量（\n 分隔）'
+        required: false
+        type: string
+        default: ''
+      caller_image:
+        description: '自定义容器镜像'
+        required: false
+        type: string
+        default: ''
+      verify_command:
+        description: '验证命令'
+        required: false
+        type: string
+        default: ''
+      pr_number:
+        description: 'PR 编号'
+        required: false
+        type: string
+        default: ''
+      issue_number:
+        description: 'Issue 编号'
+        required: false
+        type: string
+        default: ''
+      comment_author:
+        description: '评论作者'
+        required: false
+        type: string
+        default: 'workflow'
+      comment_body:
+        description: '评论内容'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      DISPATCH_TOKEN:
+        description: 'GitHub PAT（repo 权限）'
+        required: true
+      CLAUDE_API_KEY:
+        description: 'Anthropic API Key'
+        required: true
+    outputs:
+      changes_detected:
+        description: '是否检测到代码变更'
+        value: ${{ jobs.claude-code.outputs.changes_detected }}
+      commit_sha:
+        description: '提交 SHA（如有变更）'
+        value: ${{ jobs.claude-code.outputs.commit_sha }}
+      pr_url:
+        description: '创建的 PR URL（如有）'
+        value: ${{ jobs.claude-code.outputs.pr_url }}
+      cost_usd:
+        description: 'API 调用成本（USD）'
+        value: ${{ jobs.claude-code.outputs.cost_usd }}
+      input_tokens:
+        description: '输入 token 数'
+        value: ${{ jobs.claude-code.outputs.input_tokens }}
+      output_tokens:
+        description: '输出 token 数'
+        value: ${{ jobs.claude-code.outputs.output_tokens }}
+      response_summary:
+        description: 'Claude 回复摘要'
+        value: ${{ jobs.claude-code.outputs.response_summary }}
+      error_message:
+        description: '错误信息（如有）'
+        value: ${{ jobs.claude-code.outputs.error_message }}
 
 jobs:
   claude-code:
@@ -17,29 +128,53 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:
-      image: ${{ github.event.client_payload.caller_image || 'ubuntu:latest' }}
+      image: ${{ inputs.caller_image || 'ubuntu:24.04' }}
       options: --user root
+    outputs:
+      changes_detected: ${{ steps.claude_run.outputs.changes_detected }}
+      commit_sha: ${{ steps.claude_run.outputs.commit_sha }}
+      pr_url: ${{ steps.claude_run.outputs.pr_url }}
+      cost_usd: ${{ steps.claude_run.outputs.cost_usd }}
+      input_tokens: ${{ steps.claude_run.outputs.input_tokens }}
+      output_tokens: ${{ steps.claude_run.outputs.output_tokens }}
+      response_summary: ${{ steps.claude_run.outputs.response_summary }}
+      error_message: ${{ steps.claude_run.outputs.error_message }}
 
     steps:
-      # 安装 Python3 和 Java（容器可能没有预装）
-      - name: Install Python3 and Java
-        run: apt-get update && apt-get install -y python3 python3-pip curl git bash openjdk-17-jdk
-        shell: bash
-
-      # ------------------------------------------------------------------
-      # 0. Checkout agent-skills（用于读取白名单和 Skill 文件）
-      # ------------------------------------------------------------------
+      # Checkout agent-skills（用于读取白名单和 Skill 文件）
       - name: Checkout agent-skills
         uses: actions/checkout@v4
         with:
+          repository: KadenZhang3321/agent-skills
+          ref: main
           path: agent-skills
 
-      # ------------------------------------------------------------------
-      # 1. 白名单校验
-      # ------------------------------------------------------------------
+      # Install base dependencies
+      - name: Install base dependencies
+        if: inputs.caller_image == ''
+        run: |
+          apt-get update && apt-get install -y python3 python3-pip curl git bash gh
+          rm -rf /var/lib/apt/lists/*
+        shell: bash
+
+      - name: Setup Node.js
+        if: inputs.caller_image == ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: |
+          if ! command -v claude &> /dev/null; then
+            npm install -g @anthropic-ai/claude-code
+          fi
+          claude --version
+        shell: bash
+
+      # 白名单校验
       - name: Check caller whitelist
         env:
-          CALLER_REPO: ${{ github.event.client_payload.caller_repo }}
+          CALLER_REPO: ${{ inputs.caller_repo }}
         run: |
           python3 - <<'PYEOF'
           import json, os, sys
@@ -56,14 +191,12 @@ jobs:
           PYEOF
         shell: bash
 
-      # ------------------------------------------------------------------
-      # 2. 检查触发者在调用方仓库的权限（需要 write/admin/maintain）
-      # ------------------------------------------------------------------
+      # 检查触发者在调用方仓库的权限
       - name: Check user permission
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PAT }}
-          CALLER_REPO: ${{ github.event.client_payload.caller_repo }}
-          ACTOR: ${{ github.event.client_payload.comment_author }}
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+          CALLER_REPO: ${{ inputs.caller_repo }}
+          ACTOR: ${{ inputs.comment_author }}
         run: |
           PERMISSION=$(curl -sf \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -79,54 +212,30 @@ jobs:
           fi
         shell: bash
 
-      # ------------------------------------------------------------------
-      # 3. Checkout 调用方仓库
-      # ------------------------------------------------------------------
+      # Checkout 调用方仓库
       - name: Checkout caller repo
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event.client_payload.caller_repo }}
-          token: ${{ secrets.AGENT_PAT }}
+          repository: ${{ inputs.caller_repo }}
+          token: ${{ secrets.DISPATCH_TOKEN }}
           path: caller-repo
           fetch-depth: 0
 
-      # ------------------------------------------------------------------
-      # 4. 安装 Claude Code CLI（如果容器内没有 Node.js）
-      # ------------------------------------------------------------------
-      - name: Setup Node.js
-        if: github.event.client_payload.caller_image == ''
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Claude Code
-        run: |
-          npm install -g @anthropic-ai/claude-code
-          claude --version
-        shell: bash
-
-      # ------------------------------------------------------------------
-      # 5. 设置调用方仓库的环境变量
-      # ------------------------------------------------------------------
+      # 设置调用方仓库的环境变量
       - name: Setup caller environment variables
-        env:
-          CALLER_ENV_VARS: ${{ github.event.client_payload.caller_env_vars }}
+        if: inputs.caller_env_vars != ''
         run: |
-          if [ -n "$CALLER_ENV_VARS" ]; then
-            echo "$CALLER_ENV_VARS" >> $GITHUB_ENV
-            echo "::notice::Loaded caller environment variables"
-          fi
+          echo "${{ inputs.caller_env_vars }}" >> $GITHUB_ENV
+          echo "::notice::Loaded caller environment variables"
         shell: bash
 
-      # ------------------------------------------------------------------
-      # 6. 拉取 PR Diff（如果是 PR 评论）
-      # ------------------------------------------------------------------
+      # 拉取 PR Diff
       - name: Fetch PR diff
-        if: github.event.client_payload.pr_number != ''
+        if: inputs.pr_number != ''
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PAT }}
-          CALLER_REPO: ${{ github.event.client_payload.caller_repo }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+          CALLER_REPO: ${{ inputs.caller_repo }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           curl -sf \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -137,19 +246,17 @@ jobs:
           echo "PR diff: $(wc -c < /tmp/pr.diff) bytes"
         shell: bash
 
-      # ------------------------------------------------------------------
-      # 7. 构建 prompt
-      # ------------------------------------------------------------------
+      # 构建 prompt
       - name: Build prompt
         env:
-          CALLER_REPO: ${{ github.event.client_payload.caller_repo }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-          COMMENT_BODY: ${{ github.event.client_payload.comment_body }}
-          COMMENT_AUTHOR: ${{ github.event.client_payload.comment_author }}
-          SKILL_NAME: ${{ github.event.client_payload.skill_name }}
-          SKILL_URL: ${{ github.event.client_payload.skill_url }}
-          CUSTOM_PROMPT: ${{ github.event.client_payload.custom_prompt }}
-          ALLOW_CODE_CHANGE: ${{ github.event.client_payload.allow_code_change }}
+          CALLER_REPO: ${{ inputs.caller_repo }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          COMMENT_BODY: ${{ inputs.comment_body }}
+          COMMENT_AUTHOR: ${{ inputs.comment_author }}
+          SKILL_NAME: ${{ inputs.skill_name }}
+          SKILL_URL: ${{ inputs.skill_url }}
+          CUSTOM_PROMPT: ${{ inputs.custom_prompt }}
+          ALLOW_CODE_CHANGE: ${{ inputs.allow_code_change }}
         run: |
           python3 - <<'PYEOF'
           import os
@@ -163,7 +270,6 @@ jobs:
           custom_prompt     = os.environ.get('CUSTOM_PROMPT', '') or ''
           allow_code_change = os.environ.get('ALLOW_CODE_CHANGE', 'false').lower() == 'true'
 
-          # 加载 Skill 指令
           skill_prompt = ''
 
           if custom_prompt:
@@ -233,40 +339,28 @@ jobs:
 
           print(f'Prompt ready: {len(prompt)} chars')
           PYEOF
+        shell: bash
 
-      # ------------------------------------------------------------------
-      # 8. 调用 Claude Code
-      # ------------------------------------------------------------------
+      # 调用 Claude Code
       - name: Invoke Claude Code
         id: claude_run
         shell: bash
         env:
-          MODEL: ${{ github.event.client_payload.model || 'claude-sonnet-4-20250514' }}
-          ALLOW_CODE_CHANGE: ${{ github.event.client_payload.allow_code_change }}
-          DANGEROUSLY_SKIP_PERMISSIONS: ${{ github.event.client_payload.dangerously_skip_permissions }}
-          ALLOWED_TOOLS: ${{ github.event.client_payload.allowed_tools }}
-          SHOW_FULL_OUTPUT: ${{ github.event.client_payload.show_full_output }}
+          MODEL: ${{ inputs.model }}
+          ALLOW_CODE_CHANGE: ${{ inputs.allow_code_change }}
+          DANGEROUSLY_SKIP_PERMISSIONS: ${{ inputs.dangerously_skip_permissions }}
+          ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
+          SHOW_FULL_OUTPUT: ${{ inputs.show_full_output }}
           ANTHROPIC_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
         working-directory: caller-repo
         run: |
-          if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
-            echo "::group::Claude Code Full Output"
-          fi
-
-          # 配置 Claude CLI
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            echo "Configuring Claude CLI..."
-            mkdir -p ~/.config/claude
-            echo "{\"apiKey\":\"$ANTHROPIC_API_KEY\"}" > ~/.config/claude/settings.json
-            echo "Claude CLI configured"
-          fi
-
+          # 构建 Claude 参数（只构建一次）
           CLAUDE_ARGS="--model $MODEL --output-format json"
-
+          
           if [[ "$DANGEROUSLY_SKIP_PERMISSIONS" == "true" ]]; then
             CLAUDE_ARGS="$CLAUDE_ARGS --dangerously-skip-permissions"
           fi
-
+          
           if [[ -n "$ALLOWED_TOOLS" ]]; then
             CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools $ALLOWED_TOOLS"
           else
@@ -276,72 +370,55 @@ jobs:
               CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools Read,Glob,Grep,Bash"
             fi
           fi
-
-          claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS \
-            2>/tmp/claude_stderr.txt \
-            > /tmp/claude_raw.json
-          EXIT_CODE=$?
-
-          if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
-            echo "::endgroup::"
-          fi
-
-          # Debug: 显示环境变量
-          echo "Debug: CLAUDE_PROMPT length: ${#CLAUDE_PROMPT}"
-          echo "Debug: MODEL=$MODEL"
-          echo "Debug: Working directory: $(pwd)"
-
-          # Debug: 检查 claude 是否存在
-          echo "Debug: Checking claude installation..."
-          which claude || echo "WARNING: claude not in PATH"
-          claude --version 2>&1 || echo "WARNING: claude --version failed"
-
-          CLAUDE_ARGS="--model $MODEL --output-format json"
-
-          if [[ "$DANGEROUSLY_SKIP_PERMISSIONS" == "true" ]]; then
-            CLAUDE_ARGS="$CLAUDE_ARGS --dangerously-skip-permissions"
-          fi
-
-          if [[ -n "$ALLOWED_TOOLS" ]]; then
-            CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools $ALLOWED_TOOLS"
-          else
-            if [[ "$ALLOW_CODE_CHANGE" == "true" ]]; then
-              CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools Read,Edit,Write,Glob,Grep,Bash"
-            else
-              CLAUDE_ARGS="$CLAUDE_ARGS --allowedTools Read,Glob,Grep,Bash"
+          
+          # 重试机制（最多 3 次，指数退避）
+          MAX_RETRIES=3
+          EXIT_CODE=1
+          
+          for attempt in 1 2 3; do
+            if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
+              echo "::group::Claude Code Full Output (Attempt $attempt/$MAX_RETRIES)"
             fi
-          fi
-
-          echo "Debug: Running claude with args: $CLAUDE_ARGS"
+            
+            echo "=== Claude Code Attempt $attempt/$MAX_RETRIES ==="
+            
+            set +e
+            claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS \
+              2>/tmp/claude_stderr.txt \
+              > /tmp/claude_raw.json
+            EXIT_CODE=$?
+            set -e
+            
+            if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
+              echo "::endgroup::"
+            fi
+            
+            if [[ $EXIT_CODE -eq 0 ]]; then
+              echo "=== Claude Code succeeded on attempt $attempt ==="
+              break
+            fi
+            
+            if [[ $attempt -lt $MAX_RETRIES ]]; then
+              WAIT_TIME=$((10 * attempt))
+              echo "=== Claude Code failed (exit $EXIT_CODE). Retrying in ${WAIT_TIME}s... ==="
+              sleep $WAIT_TIME
+            fi
+          done
           
-          # 检查 API key 是否设置（不显示值）
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "ERROR: ANTHROPIC_API_KEY is not set!"
-            exit 1
-          else
-            echo "Debug: ANTHROPIC_API_KEY is set (length: ${#ANTHROPIC_API_KEY})"
-          fi
-
-          # 直接运行，显示所有输出
-          echo "=== Starting Claude Code ==="
-          set -o pipefail
-          claude -p "$CLAUDE_PROMPT" $CLAUDE_ARGS 2>&1 | tee /tmp/claude_output.log
-          EXIT_CODE=${PIPESTATUS[0]}
-          echo "=== Claude Code Exit Code: $EXIT_CODE ==="
+          # 导出 EXIT_CODE 供 Python 使用
+          echo "EXIT_CODE=$EXIT_CODE" >> $GITHUB_ENV
           
-          # 检查输出文件
-          echo "Debug: Output file size: $(wc -c < /tmp/claude_output.log 2>/dev/null || echo 0) bytes"
-          
-          # 保存输出到文件用于后续解析
-          cp /tmp/claude_output.log /tmp/claude_raw.json 2>/dev/null || echo "{\"error\": \"no output\"}" > /tmp/claude_raw.json
-
-          if [[ "$SHOW_FULL_OUTPUT" == "true" ]]; then
-            echo "::endgroup::"
+          if [[ $EXIT_CODE -ne 0 ]]; then
+            echo "::error::Claude Code failed after $MAX_RETRIES attempts"
           fi
-
+          
+          # 解析 JSON 输出
           python3 - <<'PYEOF'
-          import json, os
-
+          import json, os, sys
+          
+          exit_code = int(os.environ.get('EXIT_CODE', '1'))
+          error_message = ''
+          
           try:
               data = json.loads(open('/tmp/claude_raw.json').read())
               result        = data.get('result', '')
@@ -349,63 +426,73 @@ jobs:
               usage         = data.get('usage', {})
               input_tokens  = usage.get('input_tokens', 'N/A')
               output_tokens = usage.get('output_tokens', 'N/A')
+              
+              # 提取回复摘要（前 500 字符）
+              response_summary = result[:500].replace('\n', ' ').replace('\r', ' ') if result else 'No response'
           except Exception as e:
               print(f'Warning: could not parse JSON output: {e}')
-              result        = open('/tmp/claude_raw.json').read()
+              result        = open('/tmp/claude_raw.json').read() if os.path.exists('/tmp/claude_raw.json') else ''
               cost          = 'N/A'
               input_tokens  = 'N/A'
               output_tokens = 'N/A'
-
+              response_summary = 'Failed to parse Claude output'
+              error_message = f'JSON parse error: {str(e)}'
+          
+          # 保存完整回复
           open('/tmp/claude_output.txt', 'w').write(result)
-          print(result[:1000])
-
+          print(f'Response summary: {response_summary[:200]}')
+          
+          # 写入 outputs
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'cost_usd={cost}\n')
               f.write(f'input_tokens={input_tokens}\n')
               f.write(f'output_tokens={output_tokens}\n')
+              f.write(f'response_summary={response_summary}\n')
+              if error_message:
+                  f.write(f'error_message={error_message}\n')
           PYEOF
-
+          
+          # 检测代码变更
           if git status --porcelain | grep -q .; then
-            echo "code_changed=true" >> "$GITHUB_OUTPUT"
+            echo "changes_detected=true" >> "$GITHUB_OUTPUT"
+            
+            # 获取当前 commit SHA
+            COMMIT_SHA=$(git rev-parse HEAD)
+            echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+            
+            # 简化处理，实际可能需要更复杂的逻辑来检测新 PR
+            echo "pr_url=" >> "$GITHUB_OUTPUT"
           else
-            echo "code_changed=false" >> "$GITHUB_OUTPUT"
+            echo "changes_detected=false" >> "$GITHUB_OUTPUT"
+            echo "commit_sha=" >> "$GITHUB_OUTPUT"
+            echo "pr_url=" >> "$GITHUB_OUTPUT"
           fi
-
+          
           exit $EXIT_CODE
 
-      # ------------------------------------------------------------------
-      # 9. 执行验证命令（仅当 verify_command 不为空时）
-      # ------------------------------------------------------------------
+      # 执行验证命令
       - name: Run verify command
-        if: github.event.client_payload.verify_command != ''
+        if: inputs.verify_command != ''
         id: verify
         working-directory: caller-repo
         run: |
-          ${{ github.event.client_payload.verify_command }}
+          ${{ inputs.verify_command }}
         timeout-minutes: 30
         shell: bash
 
-      # ------------------------------------------------------------------
-      # 10. 生成 patch 文件并上传 artifact
-      # ------------------------------------------------------------------
+      # 生成 patch 文件并上传 artifact
       - name: Create patch file
         id: create_patch
-        # 简化条件：只要代码变更就创建 patch
-        if: steps.claude_run.outputs.code_changed == 'true'
+        if: steps.claude_run.outputs.changes_detected == 'true'
         working-directory: caller-repo
         run: |
-          git diff --no-color > /tmp/claude-changes.patch
+          git add -A
+          git diff --cached --no-color > /tmp/claude-changes.patch
+          git reset
           PATCH_SIZE=$(wc -c < /tmp/claude-changes.patch)
           echo "patch_size=$PATCH_SIZE" >> "$GITHUB_OUTPUT"
           echo "patch_path=/tmp/claude-changes.patch" >> "$GITHUB_OUTPUT"
           echo "::notice::Created patch file: $PATCH_SIZE bytes"
-          
-          # Debug: 显示 patch 内容预览
-          if [ $PATCH_SIZE -gt 0 ]; then
-            echo "=== Patch Preview ==="
-            head -30 /tmp/claude-changes.patch
-            echo "====================="
-          fi
 
       - name: Upload patch as artifact
         if: steps.create_patch.outputs.patch_path
@@ -415,71 +502,83 @@ jobs:
           path: ${{ steps.create_patch.outputs.patch_path }}
           retention-days: 1
 
-      # ------------------------------------------------------------------
-      # 11. 将 Claude 的回复发布为评论
-      # ------------------------------------------------------------------
+      # Post Claude response as comment
       - name: Post comment
-        if: always()
+        if: always() && inputs.issue_number != ''
+        shell: bash
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PAT }}
-          CALLER_REPO: ${{ github.event.client_payload.caller_repo }}
-          ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
-          PR_URL: ""
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+          CALLER_REPO: ${{ inputs.caller_repo }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ERROR_MESSAGE: ${{ steps.claude_run.outputs.error_message }}
         run: |
-          python3 - <<'PYEOF'
-          import json, os, subprocess
+          if [[ -n "$ERROR_MESSAGE" ]]; then
+            printf -v body '## Claude Code Failed\n\n%s' "$ERROR_MESSAGE"
+          else
+            output=$(cat /tmp/claude_output.txt 2>/dev/null || echo "")
+            if [[ -z "$output" ]]; then
+              output="_Claude returned an empty response._"
+            fi
+            printf -v body '## Claude Code Analysis\n\n%s' "$output"
+          fi
 
-          try:
-              output = open('/tmp/claude_output.txt').read().strip()
-          except FileNotFoundError:
-              output = ''
+          if gh api repos/$CALLER_REPO/issues/$ISSUE_NUMBER/comments \
+            --method POST \
+            --field body="$body" >/dev/null 2>&1; then
+            echo "Comment posted successfully"
+          else
+            echo "::warning::Failed to post comment"
+          fi
 
-          if not output:
-              output = '_Claude returned an empty response._'
-
-          pr_url = os.environ.get('PR_URL', '')
-
-          body = f'## Claude Code Analysis\n\n{output}'
-          if pr_url:
-              body += f'\n\n---\nI made code changes and opened a PR: {pr_url}'
-
-          comment = json.dumps({'body': body})
-          repo  = os.environ['CALLER_REPO']
-          issue = os.environ['ISSUE_NUMBER']
-          token = os.environ['GH_TOKEN']
-
-          r = subprocess.run([
-            'curl', '-sf', '-X', 'POST',
-            '-H', f'Authorization: Bearer {token}',
-            '-H', 'Accept: application/vnd.github+json',
-            f'https://api.github.com/repos/{repo}/issues/{issue}/comments',
-            '-d', comment,
-          ], capture_output=True, text=True)
-
-          if r.returncode == 0:
-              print('Comment posted successfully')
-          else:
-              print(f'::warning::Failed to post comment: {r.stderr}')
-          PYEOF
-
-      # ------------------------------------------------------------------
-      # 12. Job 执行摘要
-      # ------------------------------------------------------------------
+      # Job 执行摘要
       - name: Write job summary
         if: always()
+        env:
+          CALLER_REPO: ${{ inputs.caller_repo }}
+          COMMENT_AUTHOR: ${{ inputs.comment_author }}
+          PR_NUMBER: ${{ inputs.pr_number || 'N/A' }}
+          MODEL: ${{ inputs.model }}
+          CHANGES_DETECTED: ${{ steps.claude_run.outputs.changes_detected }}
+          COMMIT_SHA: ${{ steps.claude_run.outputs.commit_sha || 'N/A' }}
+          PR_URL: ${{ steps.claude_run.outputs.pr_url || 'N/A' }}
+          CALLER_IMAGE: ${{ inputs.caller_image || 'N/A' }}
+          VERIFY_COMMAND: ${{ inputs.verify_command || 'N/A' }}
+          VERIFY_RESULT: ${{ steps.verify.outcome || 'N/A' }}
+          INPUT_TOKENS: ${{ steps.claude_run.outputs.input_tokens }}
+          OUTPUT_TOKENS: ${{ steps.claude_run.outputs.output_tokens }}
+          COST_USD: ${{ steps.claude_run.outputs.cost_usd }}
+          RESPONSE_SUMMARY: ${{ steps.claude_run.outputs.response_summary }}
+          ERROR_MESSAGE: ${{ steps.claude_run.outputs.error_message }}
         run: |
-          echo "### Claude Code Run Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Caller repo | \`${{ github.event.client_payload.caller_repo }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Triggered by | \`${{ github.event.client_payload.comment_author }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| PR | \`${{ github.event.client_payload.pr_number || 'N/A' }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Model | \`${{ github.event.client_payload.model || 'claude-sonnet-4-20250514' }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Code changed | \`${{ steps.claude_run.outputs.code_changed }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Caller image | \`${{ github.event.client_payload.caller_image || 'N/A' }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Verify command | \`${{ github.event.client_payload.verify_command || 'N/A' }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Verify result | \`${{ steps.verify.outcome || 'skipped' }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Input tokens | \`${{ steps.claude_run.outputs.input_tokens }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Output tokens | \`${{ steps.claude_run.outputs.output_tokens }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Cost (USD) | \`${{ steps.claude_run.outputs.cost_usd }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PYEOF'
+          import os
+
+          summary_path = os.environ['GITHUB_STEP_SUMMARY']
+          lines = [
+            "### Claude Code Run Summary",
+            "",
+            "| Field | Value |",
+            "|-------|-------|",
+            f"| Caller repo | `{os.environ['CALLER_REPO']}` |",
+            f"| Triggered by | `{os.environ['COMMENT_AUTHOR']}` |",
+            f"| PR | `{os.environ['PR_NUMBER']}` |",
+            f"| Model | `{os.environ['MODEL']}` |",
+            f"| Changes detected | `{os.environ['CHANGES_DETECTED']}` |",
+            f"| Commit SHA | `{os.environ['COMMIT_SHA']}` |",
+            f"| PR URL | `{os.environ['PR_URL']}` |",
+            f"| Caller image | `{os.environ['CALLER_IMAGE']}` |",
+            f"| Verify command | `{os.environ['VERIFY_COMMAND']}` |",
+            f"| Verify result | `{os.environ['VERIFY_RESULT']}` |",
+            f"| Input tokens | `{os.environ['INPUT_TOKENS']}` |",
+            f"| Output tokens | `{os.environ['OUTPUT_TOKENS']}` |",
+            f"| Cost (USD) | `{os.environ['COST_USD']}` |",
+            f"| Response summary | `{os.environ['RESPONSE_SUMMARY']}` |",
+          ]
+
+          error_msg = os.environ.get('ERROR_MESSAGE', '')
+          if error_msg:
+            lines.append(f"| **Error** | `{error_msg}` |")
+
+          with open(summary_path, 'a') as f:
+            f.write('\n'.join(lines) + '\n')
+          PYEOF
