@@ -36,4 +36,3 @@ kubectl logs -n kube-system -l app=ascend-device-plugin
 Look for:
 - `get npu device count failed`
 - `npu device is unhealthy`
-
